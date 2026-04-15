@@ -8,14 +8,51 @@ const router = express.Router();
 
 // Register endpoint (for testing)
 router.post('/register', async (req, res) => {
+  console.log('Register request received:', req.body);
   try {
     const { email, password } = req.body;
+
+    // Check if user already exists
+    const existingUser = await User.findOne({ email });
+    if (existingUser) {
+      console.log('User already exists:', email);
+      return res.status(400).json({ error: 'User already registered' });
+    }
+
     const hashedPassword = await bcrypt.hash(password, 10);
     const user = new User({ email, password: hashedPassword });
     await user.save();
+    console.log('User registered successfully:', email);
     res.status(201).json({ message: 'User registered successfully' });
   } catch (error) {
+    console.error('Registration error:', error);
+    // Handle duplicate key error specifically
+    if (error.code === 11000) {
+      return res.status(400).json({ error: 'User already registered' });
+    }
     res.status(400).json({ error: error.message });
+  }
+});
+
+// Login endpoint
+router.post('/login', async (req, res) => {
+  try {
+    const { email, password } = req.body;
+    const user = await User.findOne({ email });
+
+    if (!user) {
+      return res.status(404).json({ error: 'User not registered' });
+    }
+
+    const passwordMatches = await bcrypt.compare(password, user.password);
+    if (!passwordMatches) {
+      return res.status(401).json({ error: 'Invalid credentials' });
+    }
+
+    res.json({ message: 'Login successful', email: user.email });
+  } catch (error) {
+    console.error('Login error:', error);
+    res.status(500).json({ error: 'Login failed. Please try again.' });
   }
 });
 
@@ -23,9 +60,12 @@ router.post('/register', async (req, res) => {
 router.post('/forget-password', async (req, res) => {
   try {
     const { email } = req.body;
+    console.log('Forget password request received for:', email);
+
     const user = await User.findOne({ email });
 
     if (!user) {
+      console.log('User not found:', email);
       return res.status(404).json({ error: 'User not found' });
     }
 
@@ -44,6 +84,9 @@ router.post('/forget-password', async (req, res) => {
         user: process.env.EMAIL_USER,
         pass: process.env.EMAIL_PASS,
       },
+      tls: {
+        rejectUnauthorized: false
+      }
     });
 
     const mailOptions = {
@@ -53,11 +96,14 @@ router.post('/forget-password', async (req, res) => {
       html: `<p>Click <a href="${process.env.FRONTEND_URL}/reset-password/${resetToken}">here</a> to reset your password. This link expires in 1 hour.</p>`,
     };
 
+    console.log('Sending email to:', email);
     await transporter.sendMail(mailOptions);
+    console.log('Email sent successfully to:', email);
 
-    res.json({ message: 'Password reset email sent' });
+    res.json({ message: 'Password reset email sent, check your email' });
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    console.error('Email sending error:', error);
+    res.status(500).json({ error: 'Failed to send email. Please try again later.' });
   }
 });
 
